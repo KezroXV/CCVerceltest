@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -58,32 +58,46 @@ export default function CategoriesSection({
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [editCategoryName, setEditCategoryName] = useState("");
-  
+
   // States for color modal
   const [showColorModal, setShowColorModal] = useState(false);
-  const [colorEditingCategory, setColorEditingCategory] = useState<Category | null>(null);
+  const [colorEditingCategory, setColorEditingCategory] =
+    useState<Category | null>(null);
   const [newColor, setNewColor] = useState("bg-blue-500");
-  
+
   // States for delete modal
   const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [deletingCategory, setDeletingCategory] = useState<Category | null>(null);
+  const [deletingCategory, setDeletingCategory] = useState<Category | null>(
+    null
+  );
 
-  // Fetch categories
+  // Fetch categories (safe: avoid setState after unmount)
   useEffect(() => {
+    let isMounted = true;
+
     const fetchCategories = async () => {
       try {
         const response = await fetch("/api/categories");
+        if (!response.ok) {
+          const err = await response.text();
+          throw new Error(err || "Failed to fetch categories");
+        }
         const data = await response.json();
-        setCategories(data);
+        if (isMounted) setCategories(data);
       } catch (error) {
         console.error("Error fetching categories:", error);
+        if (isMounted) toast.error("Impossible de charger les catégories");
       }
     };
 
     fetchCategories();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
-  const handleAddCategory = async () => {
+  const handleAddCategory = useCallback(async () => {
     if (!newCategoryName.trim()) return;
 
     setLoading(true);
@@ -115,9 +129,9 @@ export default function CategoriesSection({
     } finally {
       setLoading(false);
     }
-  };
+  }, [newCategoryName, selectedColor, categories]);
 
-  const handleEditCategory = async () => {
+  const handleEditCategory = useCallback(async () => {
     if (!editingCategory || !editCategoryName.trim()) return;
 
     setLoading(true);
@@ -153,20 +167,23 @@ export default function CategoriesSection({
     } finally {
       setLoading(false);
     }
-  };
+  }, [editingCategory, editCategoryName]);
 
-  const handleColorChange = async () => {
+  const handleColorChange = useCallback(async () => {
     if (!colorEditingCategory || !newColor) return;
 
     setLoading(true);
     try {
-      const response = await fetch(`/api/categories/${colorEditingCategory.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          color: newColor,
-        }),
-      });
+      const response = await fetch(
+        `/api/categories/${colorEditingCategory.id}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            color: newColor,
+          }),
+        }
+      );
 
       if (response.ok) {
         const updatedCategory = await response.json();
@@ -191,9 +208,9 @@ export default function CategoriesSection({
     } finally {
       setLoading(false);
     }
-  };
+  }, [colorEditingCategory, newColor]);
 
-  const handleDeleteCategory = async () => {
+  const handleDeleteCategory = useCallback(async () => {
     if (!deletingCategory) return;
 
     setLoading(true);
@@ -219,98 +236,119 @@ export default function CategoriesSection({
     } finally {
       setLoading(false);
     }
-  };
+  }, [deletingCategory]);
 
-  const filteredCategories = categories.filter((category) =>
-    category.name.toLowerCase().includes(searchQuery.toLowerCase())
+  const filteredCategories = useMemo(
+    () =>
+      categories.filter((category) =>
+        category.name.toLowerCase().includes(searchQuery.toLowerCase())
+      ),
+    [categories, searchQuery]
   );
 
-  const Header = (
-    <div className="flex items-center justify-between gap-3">
-      <h4 className="text-[18px] font-medium text-gray-800">Mes Catégories</h4>
-      <div className="relative w-64 max-w-full">
-        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-        <Input
-          placeholder="Rechercher..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="pl-10 h-9 text-[12px]"
-        />
-      </div>
-    </div>
-  );
-
-  const Chips = (
-    <div className="flex flex-wrap gap-2">
-      {filteredCategories.map((category) => (
-        <div
-          key={category.id}
-          className="group flex items-center gap-2 px-3 py-1.5 rounded-full bg-white border border-chart-4 hover:bg-gray-50 transition-all"
-        >
-          <span className={`w-2.5 h-2.5 rounded-full ${category.color}`} />
-          <span className="text-[12px] font-medium text-gray-900">
-            {category.name}
-          </span>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button className="opacity-60 hover:opacity-100 transition-opacity">
-                <span className="sr-only">Actions</span>⋯
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent>
-              <DropdownMenuItem
-                onClick={() => {
-                  setEditingCategory(category);
-                  setEditCategoryName(category.name);
-                  setShowEditModal(true);
-                }}
-              >
-                Renommer
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => {
-                  setColorEditingCategory(category);
-                  setNewColor(category.color);
-                  setShowColorModal(true);
-                }}
-              >
-                Changer la couleur
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                className="text-red-600"
-                onClick={() => {
-                  setDeletingCategory(category);
-                  setShowDeleteModal(true);
-                }}
-              >
-                Supprimer
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+  const Header = useMemo(
+    () => (
+      <div className="flex items-center justify-between gap-3">
+        <h4 className="text-[18px] font-medium text-gray-800">
+          Mes Catégories
+        </h4>
+        <div className="relative w-64 max-w-full">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+          <Input
+            placeholder="Rechercher..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-10 h-9 text-[12px]"
+          />
         </div>
-      ))}
-    </div>
+      </div>
+    ),
+    [searchQuery]
   );
 
-  const AddFloating = (
-    <div className="flex justify-end">
-      <Button
-        variant="outline"
-        size="icon"
-        className="rounded-full"
-        onClick={() => setShowAddModal(true)}
-      >
-        <Plus className="h-4 w-4" />
-      </Button>
-    </div>
+  const Chips = useMemo(
+    () => (
+      <div className="flex flex-wrap gap-2">
+        {filteredCategories.map((category) => (
+          <div
+            key={category.id}
+            className="group flex items-center gap-2 px-3 py-1.5 rounded-full bg-white border border-chart-4 hover:bg-gray-50 transition-all"
+          >
+            <span className={`w-2.5 h-2.5 rounded-full ${category.color}`} />
+            <span className="text-[12px] font-medium text-gray-900">
+              {category.name}
+            </span>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="opacity-60 hover:opacity-100 transition-opacity"
+                >
+                  <span className="sr-only">Actions</span>⋯
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <DropdownMenuItem
+                  onClick={() => {
+                    setEditingCategory(category);
+                    setEditCategoryName(category.name);
+                    setShowEditModal(true);
+                  }}
+                >
+                  Renommer
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => {
+                    setColorEditingCategory(category);
+                    setNewColor(category.color);
+                    setShowColorModal(true);
+                  }}
+                >
+                  Changer la couleur
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="text-red-600"
+                  onClick={() => {
+                    setDeletingCategory(category);
+                    setShowDeleteModal(true);
+                  }}
+                >
+                  Supprimer
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        ))}
+      </div>
+    ),
+    [filteredCategories]
   );
 
-  const InlineContent = (
-    <div className="space-y-4">
-      {Header}
-      {Chips}
-      {AddFloating}
-    </div>
+  const AddFloating = useMemo(
+    () => (
+      <div className="flex justify-end">
+        <Button
+          variant="outline"
+          size="icon"
+          className="rounded-full"
+          onClick={() => setShowAddModal(true)}
+        >
+          <Plus className="h-4 w-4" />
+        </Button>
+      </div>
+    ),
+    []
+  );
+
+  const InlineContent = useMemo(
+    () => (
+      <div className="space-y-4">
+        {Header}
+        {Chips}
+        {AddFloating}
+      </div>
+    ),
+    [Header, Chips, AddFloating]
   );
 
   return (
@@ -478,10 +516,7 @@ export default function CategoriesSection({
               >
                 Annuler
               </Button>
-              <Button
-                onClick={handleColorChange}
-                disabled={loading}
-              >
+              <Button onClick={handleColorChange} disabled={loading}>
                 {loading ? "Modification..." : "Modifier"}
               </Button>
             </div>
@@ -502,16 +537,16 @@ export default function CategoriesSection({
                 <X className="h-5 w-5 text-red-600" />
               </div>
               <div className="flex-1">
-                <h3 className="text-sm font-medium text-red-800">
-                  Attention
-                </h3>
+                <h3 className="text-sm font-medium text-red-800">Attention</h3>
                 <p className="text-sm text-red-700 mt-1">
-                  Êtes-vous sûr de vouloir supprimer la catégorie &quot;{deletingCategory?.name}&quot; ? 
-                  Cette action est irréversible.
+                  Êtes-vous sûr de vouloir supprimer la catégorie &quot;
+                  {deletingCategory?.name}&quot; ? Cette action est
+                  irréversible.
                 </p>
                 {deletingCategory && deletingCategory._count.posts > 0 && (
                   <p className="text-xs text-red-600 mt-2 font-medium">
-                    ⚠️ Cette catégorie contient {deletingCategory._count.posts} post(s)
+                    ⚠️ Cette catégorie contient {deletingCategory._count.posts}{" "}
+                    post(s)
                   </p>
                 )}
               </div>
